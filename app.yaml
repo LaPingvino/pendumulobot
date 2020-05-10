@@ -1,4 +1,3 @@
-application: pendumulobot
 version: alpha
 runtime: go112
 
