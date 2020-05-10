@@ -1,0 +1,4 @@
+package main
+
+const TOKEN="" // get token from botfather on telegram
+const SECRETLINK="" // secret link for webhook access
