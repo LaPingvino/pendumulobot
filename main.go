@@ -1,17 +1,17 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"google.golang.org/appengine"
-	"google.golang.org/appengine/datastore"
-	"google.golang.org/appengine/log"
-	"google.golang.org/appengine/urlfetch"
+	"cloud.google.com/go/datastore"
+	"log"
 	"io/ioutil"
 	"net/http"
 	"regexp"
 	"strings"
 	"unicode"
+	"os"
 )
 
 const URL = "https://api.telegram.org/bot" + TOKEN + "/"
@@ -92,23 +92,26 @@ func telegram(w http.ResponseWriter, r *http.Request) {
 	var mymessage string
 	var Diveno Informoj
 
-	c := appengine.NewContext(r)
-	client := &http.Client{
-		Transport: &urlfetch.Transport{
-			Context: c,
-		},
-	}
+	c := context.Background()
+
+        // Set your Google Cloud Platform project ID.
+        projectID := "pendumulobot"
+
+        // Creates a client.
+        dsclient, err := datastore.NewClient(c, projectID)
+
+	client := &http.Client{}
 	request, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		log.Errorf(c, "%v", err)
+		log.Fatalln(err)
 	}
 	r.Body.Close()
 	var Output Incoming
 	err = json.Unmarshal(request, &Output)
 	if err != nil {
-		log.Errorf(c, "%v", err)
+		log.Fatalln(err)
 	}
-	log.Debugf(c, "%v", Output)
+	log.Println(Output)
 	command := regexp.MustCompile("/[^ @]*").FindString(Output.Message.Text)
 	text := regexp.MustCompile("^/[^ ]* ").ReplaceAllString(Output.Message.Text, "")
 	switch command {
@@ -120,8 +123,8 @@ func telegram(w http.ResponseWriter, r *http.Request) {
 		mymessage = "Kiu? Mi? Eble vi estas, " + Output.Message.From.FirstName + "... \U0001F60F"
 	case "/diveni", "/":
 		var diveno rune
-		k := datastore.NewKey(c, "Diveno", "", Output.Message.Chat.ID, nil)
-		if err := datastore.Get(c, k, &Diveno); err != nil || Diveno.Vicoj < 1 {
+		k := datastore.IDKey("Diveno", Output.Message.Chat.ID, nil)
+		if err := dsclient.Get(c, k, &Diveno); err != nil || Diveno.Vicoj < 1 {
 			mymessage = "Ni komencas novan ludon, sendu literon por diveni.\n"
 			Diveno.Celvorto = elektivorton()
 			Diveno.Vicoj = 10
@@ -178,13 +181,23 @@ func telegram(w http.ResponseWriter, r *http.Request) {
 			mymessage += "\nVi ne sukcesis diveni...\nLa vorto estis " + Diveno.Celvorto
 		}
 
-		if _, err := datastore.Put(c, k, &Diveno); err != nil {
+		if _, err := dsclient.Put(c, k, &Diveno); err != nil {
 			mymessage += "\nVia nova diveno ne sukcese konserviĝis...\nEraro: " + err.Error() + "\n" + fmt.Sprintf("%#v", Diveno)
 		}
 	}
 	client.Post(URL+"sendMessage", "application/json", strings.NewReader(fmt.Sprintf("{\"chat_id\": %v, \"text\": \"%v\"}", Output.Message.Chat.ID, mymessage)))
 }
 
-func init() {
+func main() {
 	http.HandleFunc("/"+SECRETLINK, telegram)
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+		log.Printf("Defaulting to port %s", port)
+	}
+
+	log.Printf("Listening on port %s", port)
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
+		log.Fatal(err)
+	}
 }
